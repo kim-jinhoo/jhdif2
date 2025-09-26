@@ -34,7 +34,7 @@ let _timer = 90;
 let _objects = {};
 
 let _pollutionScore = 0; // 오염(적팀) 점수 (레드+그린+옐로)
-let _playerScore = 0;
+let _playerScore = 0;    // 플레이어가 오염 칸을 칠한 횟수
 
 let HEIGHT_KEY = 10000000;
 
@@ -73,14 +73,6 @@ function startState(state)
                 p.sendUpdated();
             }
 
-            // 맵 전체를 깨끗하게(블루) 칠함
-            for(let y = 0; y < Map.height; y++) {
-                for(let x = 0; x < Map.width; x++) {
-                    _objects[y * HEIGHT_KEY + x] = 2; // 2: blue
-                    Map.putObject(x, y, blue, { overlap: true });
-                    _playerScore++;
-                }
-            }
             break;
         case STATE_READY:
             for(let i in _players) {
@@ -150,6 +142,17 @@ App.onUnitAttacked.Add(function(sender, x, y, target) {
     // 모두 player팀이므로 공격 불가
 });
 
+function countPollutedTiles() {
+    // 오염된 칸(3,4,5)의 갯수 반환
+    let count = 0;
+    for (let key in _objects) {
+        if (_objects[key] === 3 || _objects[key] === 4 || _objects[key] === 5) {
+            count++;
+        }
+    }
+    return count;
+}
+
 App.onUpdate.Add(function(dt) {
     if(!_start)
         return;
@@ -159,7 +162,7 @@ App.onUpdate.Add(function(dt) {
     switch(_state)
     {
         case STATE_INIT:
-            App.showCenterLabel("바닥을 청소하세요!\n오염(적팀)이 자동으로 바닥을 더럽힙니다.\n모든 오염을 청소하면 승리합니다.");
+            App.showCenterLabel("바닥을 청소하세요!\n오염(적팀)이 자동으로 바닥을 더럽힙니다.\n오염 칸을 많이 청소하면 승리합니다.");
             if(_stateTimer >= 5)
             {
                 startState(STATE_READY);
@@ -173,25 +176,26 @@ App.onUpdate.Add(function(dt) {
             }
             break;
         case STATE_PLAYING:
-            App.showCenterLabel(_timer +  `\n오염 VS player\n` + _pollutionScore + "  VS  " + _playerScore);
+            App.showCenterLabel(
+                _timer + "초\n점수(오염 칸 청소 횟수): " + _playerScore +
+                "\n현재 오염된 칸: " + countPollutedTiles()
+            );
             if(_stateTimer >= 1) {
                 _stateTimer = 0;
                 _timer--;
             }
 
             // 오염(레드, 그린, 옐로) 자동 랜덤 생성 (플레이어 수에 따라 반복, 확률 0.1)
-            for(let i=0; i<(_players.length + 2); i++) {
+            for(let i=0; i<(_players.length * 2); i++) {
                 let colorId = i % 3; // 0: red, 1: green, 2: yellow
                 let texture = colorId == 0 ? red : (colorId == 1 ? green : yellow);
-                if(Math.random() < 0.1) {
+                if(Math.random() < 0.024) {
                     let rx = Math.floor(Math.random() * Map.width);
                     let ry = Math.floor(Math.random() * Map.height);
                     let key = ry * HEIGHT_KEY + rx;
-                    // 2: blue, 3: red, 4: green, 5: yellow
-                    // 이미 다른 오염 타일이면 덮지 않음
-                    if(_objects[key] === 2) {
-                        // 깨끗한 곳만 오염이 덮을 수 있음
-                        _playerScore--;
+                    // 오염 칸(3,4,5)만 아니면 오염을 덮을 수 있음
+                    if(_objects[key] !== 3 && _objects[key] !== 4 && _objects[key] !== 5) {
+                        if(_objects[key] === 2) ; // 블루 칸이어도 점수 변화 없음
                         _objects[key] = colorId + 3; // 3: red, 4: green, 5: yellow
                         _pollutionScore++;
                         Map.putObject(rx, ry, texture, { overlap: true });
@@ -202,37 +206,15 @@ App.onUpdate.Add(function(dt) {
             // time over
             if(_timer <= 0)
             {
-                if(_pollutionScore > _playerScore)
-                {
-                    for(let i in _players) {
-                        let p = _players[i];
-                        p.title = null;
-                        p.sprite = tomb;
-                        p.moveSpeed = 0;
-                        p.sendUpdated();
-                    }
-                    _resultStr = '오염 VS player\n' + _pollutionScore + "  VS  " + _playerScore + '\n오염 승리';
-                }
-                else if(_pollutionScore < _playerScore)
-                {
-                    for(let i in _players) {
-                        let p = _players[i];
-                        p.title = null;
-                        p.sprite = tomb;
-                        p.moveSpeed = 0;
-                        p.sendUpdated();
-                    }
-                    _resultStr = '오염 VS player\n' + _pollutionScore + "  VS  " + _playerScore + '\nplayer 승리';
-                }
-                else
-                {
-                    for(let i in _players) {
-                        let p = _players[i];
-                        p.title = null;
-                        p.sprite = null;
-                        p.sendUpdated();
-                    }
-                    _resultStr = '오염 VS player\n' + _pollutionScore + "  VS  " + _playerScore + '\n무승부';
+                let pollutedCount = countPollutedTiles();
+                _resultStr = '청소 점수(오염 칸 청소 횟수): ' + _playerScore +
+                    '\n남은 오염 칸: ' + pollutedCount;
+                for(let i in _players) {
+                    let p = _players[i];
+                    p.title = null;
+                    p.sprite = tomb;
+                    p.moveSpeed = 0;
+                    p.sendUpdated();
                 }
                 startState(STATE_JUDGE);
             }
@@ -241,22 +223,19 @@ App.onUpdate.Add(function(dt) {
                 for(let i in _players) {
                     let p = _players[i];
 
-                    // 플레이어가 오염 타일 위에 올라가면 청소(블루로 덮어쓰기)
+                    // 플레이어가 오염 칸(3,4,5) 위에 올라가면만 청소(블루로 덮어쓰기)
                     if(p.tag.x != p.tileX || p.tag.y != p.tileY) {
                         p.tag.x = p.tileX;
                         p.tag.y = p.tileY;
 
                         let key = p.tileY * HEIGHT_KEY + p.tileX;
                         let oldValue = _objects[key];
-                        if(oldValue === 2) continue; // 이미 깨끗하면 패스
-
-                        if(oldValue === 3 || oldValue === 4 || oldValue === 5) _pollutionScore--;
-                        if(oldValue === 2) _playerScore--;
-
-                        _playerScore++;
-                        _objects[key] = 2; // 깨끗하게
-
-                        Map.putObject(p.tileX, p.tileY, blue, { overlap: true });
+                        // 오염 칸(3,4,5)만 블루로 덮기
+                        if(oldValue === 3 || oldValue === 4 || oldValue === 5) {
+                            _playerScore++; // 오염 칸을 청소한 횟수 증가
+                            _objects[key] = 2; // 블루로 덮기
+                            Map.putObject(p.tileX, p.tileY, blue, { overlap: true });
+                        }
                     }
                 }
             }
